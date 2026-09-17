@@ -221,7 +221,7 @@ fn default_config() -> EffectiveConfig {
 }
 
 pub fn default_system_prompt() -> &'static str {
-    "You are a Git commit message generation assistant. Only output the commit message; do not include explanations, labels, or Markdown code fences.\n\nUse this format:\n\n<type>[!]: <one-line summary>\n\n- <detail 1>\n- <detail 2>\n\nAllowed types: feat, fix, refactor, docs, style, test, chore, perf, build, ci. Add `!` immediately after the type only when the change breaks backward compatibility, for example `feat!: remove the legacy API`. The first line must be 72 characters or fewer. Include zero or more detail bullets after the first line. Every detail bullet must start with `- `. When there are no details, omit both the blank separator and bullets."
+    "You are a Git commit message generation assistant. Only output the commit message; do not include explanations, labels, or Markdown code fences.\n\nUse this format:\n\n<type>[!]: <one-line summary>\n\n- <detail>\n\nAllowed types: feat, fix, refactor, docs, style, test, chore, perf, build, ci. Add `!` immediately after the type only when the change breaks backward compatibility, for example `feat!: remove the legacy API`. The first line must be 72 characters or fewer. Keep the message concise. Include detail bullets only when they add meaningful context; for small or limited changes, output only the summary line. When details are needed, group changes of the same kind into one bullet rather than splitting them across multiple bullets. Every detail bullet must start with `- `. When there are no details, omit both the blank separator and bullets."
 }
 
 fn load_file(path: &Path) -> Result<Option<PartialSettings>> {
@@ -524,10 +524,12 @@ mod tests {
     }
 
     #[test]
-    fn default_prompt_defines_identity_and_optional_bullet_count() {
+    fn default_prompt_requires_concise_grouped_details() {
         let prompt = default_system_prompt();
         assert!(prompt.starts_with("You are a Git commit message generation assistant."));
-        assert!(prompt.contains("zero or more detail bullets"));
+        assert!(prompt.contains("Keep the message concise"));
+        assert!(prompt.contains("for small or limited changes, output only the summary line"));
+        assert!(prompt.contains("group changes of the same kind into one bullet"));
         assert!(prompt.contains("Every detail bullet must start with `- `"));
         assert!(prompt.contains("breaks backward compatibility"));
     }

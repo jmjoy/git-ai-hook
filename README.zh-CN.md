@@ -143,7 +143,7 @@ feat: add generated commit messages
 
 由于提示词块的每一行都以 `#` 开头，Git 会忽略它。默认 `debug = false` 时不会写入提示词块。提示词块可能含有暂存 diff；若 diff 敏感，请注意编辑器备份和临时提交信息文件。
 
-模型错误、超时、配置错误和消息文件错误会写入用户缓存/配置目录下的日志，本工具的钩子路径始终返回成功，不阻塞提交。模型输出不符合格式时会回退为 `chore: update N files`。
+模型错误、超时、配置错误和消息文件错误会写入用户缓存/配置目录下的日志，本工具的钩子路径始终返回成功，不阻塞提交。使用内置 system prompt 时，模型输出不符合格式会回退为 `chore: update N files`；自定义 `system_prompt` 时会跳过 Conventional Commit 格式校验。
 
 如果变更破坏向后兼容性，生成的 Conventional Commit 首行会在 type 后紧跟 `!`，例如 `feat!: remove the legacy API`。
 

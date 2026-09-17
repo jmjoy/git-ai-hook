@@ -65,7 +65,7 @@ pub fn build_prompts(config: &EffectiveConfig, changes: &StagedChanges) -> Promp
     PromptBundle { system, user }
 }
 
-pub fn clean_model_output(output: &str, file_count: usize) -> String {
+pub fn clean_model_output(config: &EffectiveConfig, output: &str, file_count: usize) -> String {
     let cleaned = output
         .lines()
         .filter(|line| !line.trim().starts_with("```"))
@@ -73,10 +73,10 @@ pub fn clean_model_output(output: &str, file_count: usize) -> String {
         .join("\n");
     let cleaned = cleaned.trim();
 
-    if is_valid_message(cleaned) {
-        cleaned.to_string()
-    } else {
+    if cleaned.is_empty() || (!config.has_custom_system_prompt() && !is_valid_message(cleaned)) {
         fallback_message(file_count)
+    } else {
+        cleaned.to_string()
     }
 }
 
@@ -173,25 +173,46 @@ mod tests {
             timeout_secs: DEFAULT_TIMEOUT_SECS,
             system_prompt: "Only output a commit message.".to_string(),
             debug: false,
-            origins: BTreeMap::from([("api_key", ConfigSource::Environment)]),
+            origins: BTreeMap::from([
+                ("api_key", ConfigSource::Environment),
+                ("system_prompt", ConfigSource::Default),
+            ]),
         }
     }
 
     #[test]
     fn strips_fences_and_validates_first_line() {
+        let config = config(40);
         assert_eq!(
-            clean_model_output("```text\nfeat: add hook\n\n- wire it up\n```", 2),
+            clean_model_output(&config, "```text\nfeat: add hook\n\n- wire it up\n```", 2),
             "feat: add hook\n\n- wire it up"
         );
         assert_eq!(
-            clean_model_output("feat!: remove legacy API", 2),
+            clean_model_output(&config, "feat!: remove legacy API", 2),
             "feat!: remove legacy API"
         );
         assert_eq!(
-            clean_model_output("feat!!: invalid", 2),
+            clean_model_output(&config, "feat!!: invalid", 2),
             "chore: update 2 files"
         );
-        assert_eq!(clean_model_output("A title", 2), "chore: update 2 files");
+        assert_eq!(
+            clean_model_output(&config, "A title", 2),
+            "chore: update 2 files"
+        );
+    }
+
+    #[test]
+    fn preserves_non_conventional_output_with_custom_system_prompt() {
+        let mut config = config(40);
+        config.system_prompt = "Write a release note summary.".to_string();
+        config
+            .origins
+            .insert("system_prompt", ConfigSource::Project);
+
+        assert_eq!(
+            clean_model_output(&config, "Release notes\n\n- Add hook automation", 2),
+            "Release notes\n\n- Add hook automation"
+        );
     }
 
     #[test]

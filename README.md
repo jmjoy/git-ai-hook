@@ -143,7 +143,7 @@ feat: add generated commit messages
 
 Git ignores the prompt block because every line is a comment. With the default `debug = false`, the prompt block is omitted. The prompt block can contain staged-diff content, so avoid sharing an editor backup or temporary commit message file if that content is sensitive.
 
-Model errors, timeouts, configuration errors, and message-file errors are logged under the user cache/config area and return success from this tool's hook path, so they do not block a commit. Invalid model output falls back to `chore: update N files`.
+Model errors, timeouts, configuration errors, and message-file errors are logged under the user cache/config area and return success from this tool's hook path, so they do not block a commit. With the built-in system prompt, invalid model output falls back to `chore: update N files`; a customized `system_prompt` bypasses Conventional Commit validation.
 
 For backward-incompatible changes, generated Conventional Commit subjects use `!` immediately after the type, for example `feat!: remove the legacy API`.
 

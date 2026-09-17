@@ -74,6 +74,10 @@ impl EffectiveConfig {
             .copied()
             .unwrap_or(ConfigSource::Default)
     }
+
+    pub fn has_custom_system_prompt(&self) -> bool {
+        self.source_for("system_prompt") != ConfigSource::Default
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]

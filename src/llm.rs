@@ -17,7 +17,10 @@ pub async fn generate_message(
 ) -> Result<(String, PromptBundle)> {
     let prompts = build_prompts(config, changes);
     let raw = request_with_spinner(config, &prompts, "Generating commit message...").await?;
-    Ok((clean_model_output(&raw, changes.file_count()), prompts))
+    Ok((
+        clean_model_output(config, &raw, changes.file_count()),
+        prompts,
+    ))
 }
 
 pub async fn validate_connection(config: &EffectiveConfig) -> Result<()> {

@@ -6,34 +6,40 @@
 
 > 平台支持：仅支持 Linux 和 macOS，**不支持 Windows**。
 
-## 安装
+## 快速开始
 
-先用 Cargo 构建并安装二进制：
+1. 安装二进制：
 
-```bash
-cargo install --path .
-```
+   ```bash
+   cargo install git-ai-hook
+   ```
 
-在需要启用钩子的 Git 仓库中运行：
+2. 创建全局配置文件并输出其路径。在该文件中至少填写 `api_key`；服务商配置和其他选项见下方的“配置”章节。
 
-```bash
-git ai-hook install
-```
+   ```bash
+   git ai-hook config init
+   git ai-hook config path
+   ```
 
-该命令通过 `git2` 发现仓库，优先使用 `core.hooksPath`，并创建指向当前二进制的 `prepare-commit-msg` 符号链接。如果原本存在其他钩子，会被移动到 `prepare-commit-msg.local`，每次提交时先执行它。
+3. 进入需要生成提交信息的 Git 仓库并安装钩子：
 
-为确保 `git commit --no-edit` 能稳定忽略记录用的 `#` 提示词行，安装时会将仓库本地的 `commit.cleanup` 设为 `strip`。原值会写入工具专用 Git 配置键，并在卸载时恢复；安装后由用户自行修改的值不会被覆盖。
+   ```bash
+   cd /path/to/repository
+   git ai-hook install
+   ```
+
+4. 暂存要提交的变更，然后让钩子生成提交信息：
+
+   ```bash
+   git add <文件>
+   git commit --no-edit
+   ```
+
+   `git commit --no-edit` 会直接采用生成的提交信息。若要查看或编辑 AI 生成的内容，执行不带 `--no-edit` 的 `git commit`；钩子生成信息后，Git 会打开已配置的编辑器。不要使用 `git commit -m` 或 `git commit -F`，这两种形式会按设计跳过生成。
 
 ## 配置
 
-创建全局配置文件：
-
-```bash
-git ai-hook config init
-git ai-hook config path
-```
-
-全局配置路径为 `dirs::config_dir()/git-ai-hook/config.toml`。仓库工作区根目录下的 `.git-ai-hook.toml` 可以按字段覆盖全局配置。
+快速开始中创建的全局配置文件路径为 `dirs::config_dir()/git-ai-hook/config.toml`，可用 `git ai-hook config path` 输出实际路径。已有全局配置时，`git ai-hook config init` 会拒绝覆盖；传入 `--force` 才会替换。仓库工作区根目录下的 `.git-ai-hook.toml` 可以按字段覆盖全局配置。
 
 ```toml
 [settings]
@@ -77,8 +83,6 @@ GIT_AI_HOOK_SYSTEM_PROMPT
 GIT_AI_HOOK_DEBUG
 ```
 
-只支持 `[settings]` 表。旧的 `[api]` 表会被拒绝，避免拼写错误时静默回退到默认值。
-
 ### OpenAI 兼容端点
 
 客户端通过 Rig 的 OpenAI Chat Completions 兼容路径请求配置的 `base_url`。DeepSeek 示例：
@@ -101,29 +105,24 @@ model = "llama3.2"
 language = "zh-CN"
 ```
 
-## 命令
+## 钩子安装
 
-```text
-git ai-hook install
-git ai-hook uninstall
-git ai-hook status
-git ai-hook generate
-git ai-hook config path
-git ai-hook config init [--force]
-git ai-hook config validate
-```
+在 Git 仓库中执行 `git ai-hook install` 时，命令会通过 `git2` 发现仓库，优先使用 `core.hooksPath`，并创建指向当前二进制的 `prepare-commit-msg` 符号链接。如果原本存在其他钩子，会被移动到 `prepare-commit-msg.local`，每次提交时先执行它。
+
+为确保 `git commit --no-edit` 能稳定忽略记录用的 `#` 提示词行，安装时会将仓库本地的 `commit.cleanup` 设为 `strip`。原值会写入工具专用 Git 配置键，并在卸载时恢复；安装后由用户自行修改的值不会被覆盖。
+
+## 其他命令
 
 - `generate` 收集暂存 diff，并只将干净的提交信息输出到 stdout，不修改 Git 文件。`debug = true` 时，还会输出包含完整提示词的注释块。
 - `status` 显示钩子状态、配置来源和 API Key 是否存在，不会输出密钥内容。
 - `config validate` 校验合并后的本地配置，并向已配置的模型发送一次最小真实请求；该操作可能产生少量模型费用。
-- `config init` 默认不覆盖已有配置；使用 `--force` 才会替换。
 
 ## 钩子机制
 
 Git 调用钩子时，`git-ai-hook` 会：
 
 1. 若存在 `prepare-commit-msg.local`，先执行它；原钩子返回非零时保留该退出码。
-2. 当 `source == "message"`、`GIT_AI_HOOK_SKIP=1`、缺少 API Key，或用户已经写入非注释内容时，直接跳过生成。
+2. 当 Git 提供显式消息（`source == "message"`）、`GIT_AI_HOOK_SKIP=1`、缺少 API Key，或用户已经写入非注释内容时，直接跳过生成。
 3. 完整收集暂存区 index diff。二进制文件和 lock 文件只记录文件元数据，不发送 patch。
 4. 使用变更文件清单和文本 patch 构建提示词。完整 diff 会先收集到内存；之后 `max_context_tokens` 以保守估算限制实际发送的 patch 内容，同时保留文件清单。
 5. 请求期间在 stderr 显示 spinner，并在成功、超时或失败时清除。
@@ -142,7 +141,7 @@ feat: add generated commit messages
 # <原有 Git 注释>
 ```
 
-由于提示词块的每一行都以 `#` 开头，Git 会忽略它。默认 `debug = false` 时不会写入提示词块。因此 `git commit --no-edit` 会直接使用生成内容，同时编辑器仍可看到完整上下文。提示词块可能含有暂存 diff；若 diff 敏感，请注意编辑器备份和临时提交信息文件。
+由于提示词块的每一行都以 `#` 开头，Git 会忽略它。默认 `debug = false` 时不会写入提示词块。提示词块可能含有暂存 diff；若 diff 敏感，请注意编辑器备份和临时提交信息文件。
 
 模型错误、超时、配置错误和消息文件错误会写入用户缓存/配置目录下的日志，本工具的钩子路径始终返回成功，不阻塞提交。模型输出不符合格式时会回退为 `chore: update N files`。
 

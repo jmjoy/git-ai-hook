@@ -6,34 +6,40 @@
 
 > Platform support: Linux and macOS only. Windows is not supported.
 
-## Install
+## Quick Start
 
-Build and install the binary with Cargo:
+1. Install the binary:
 
-```bash
-cargo install --path .
-```
+   ```bash
+   cargo install git-ai-hook
+   ```
 
-From the Git repository where you want the hook:
+2. Create the global configuration file and print its path. Set at least `api_key` in that file; the [Configuration](#configuration) section covers provider settings and other options.
 
-```bash
-git ai-hook install
-```
+   ```bash
+   git ai-hook config init
+   git ai-hook config path
+   ```
 
-The command discovers the repository with `git2`, respects `core.hooksPath`, and creates a `prepare-commit-msg` symlink to the running binary. If a different hook already exists, it is moved to `prepare-commit-msg.local` and is run first on every commit.
+3. In the Git repository where you want generated commit messages, install the hook:
 
-To make `git commit --no-edit` discard the recorded `#` prompt lines reliably, installation sets the repository-local `commit.cleanup` to `strip`. The prior value is recorded under tool-specific Git config keys and restored during uninstall; a value you change after installation is left untouched.
+   ```bash
+   cd /path/to/repository
+   git ai-hook install
+   ```
+
+4. Stage the changes you want to commit, then let the hook generate a message:
+
+   ```bash
+   git add <files>
+   git commit --no-edit
+   ```
+
+   `git commit --no-edit` accepts the generated message as is. To review or edit the AI-generated message, run `git commit` without `--no-edit`; Git opens the configured editor after the hook generates it. Do not use `git commit -m` or `git commit -F`, because those forms intentionally skip generation.
 
 ## Configuration
 
-Create the global configuration file:
-
-```bash
-git ai-hook config init
-git ai-hook config path
-```
-
-The global file is located at `dirs::config_dir()/git-ai-hook/config.toml`. A repository can override individual settings with `.git-ai-hook.toml` at its worktree root.
+The global file created in the Quick Start is located at `dirs::config_dir()/git-ai-hook/config.toml`, and `git ai-hook config path` prints its actual path. `git ai-hook config init` refuses to overwrite an existing global file unless `--force` is supplied. A repository can override individual settings with `.git-ai-hook.toml` at its worktree root.
 
 ```toml
 [settings]
@@ -77,8 +83,6 @@ GIT_AI_HOOK_SYSTEM_PROMPT
 GIT_AI_HOOK_DEBUG
 ```
 
-Only the `[settings]` TOML table is supported. Legacy `[api]` configuration is rejected so a typo does not silently fall back to defaults.
-
 ### OpenAI-Compatible Endpoints
 
 The client uses Rig's OpenAI Chat Completions compatibility path with the configured base URL. For example:
@@ -101,29 +105,24 @@ model = "llama3.2"
 language = "en"
 ```
 
-## Commands
+## Hook Installation
 
-```text
-git ai-hook install
-git ai-hook uninstall
-git ai-hook status
-git ai-hook generate
-git ai-hook config path
-git ai-hook config init [--force]
-git ai-hook config validate
-```
+When `git ai-hook install` runs in a Git repository, it discovers the repository with `git2`, respects `core.hooksPath`, and creates a `prepare-commit-msg` symlink to the running binary. If a different hook already exists, it is moved to `prepare-commit-msg.local` and runs first on every commit.
+
+To make `git commit --no-edit` discard recorded `#` prompt lines reliably, installation sets the repository-local `commit.cleanup` to `strip`. The prior value is recorded under tool-specific Git config keys and restored during uninstall; a value you change after installation is left untouched.
+
+## Additional Commands
 
 - `generate` collects the staged diff and prints a clean commit message to stdout without changing Git files. With `debug = true`, it also prints the complete prompt block as comments.
 - `status` reports hook state, configuration sources, and whether an API key is present. It never prints key material.
 - `config validate` validates the effective local configuration and sends a minimal real completion request to the configured model. It can incur a small provider charge.
-- `config init` refuses to overwrite an existing global file unless `--force` is supplied.
 
 ## Hook Behavior
 
 When Git invokes the hook, `git-ai-hook`:
 
 1. Runs `prepare-commit-msg.local` first when present. A nonzero exit from that original hook is preserved.
-2. Exits without generation for `git commit -m` / `-F` (`source == "message"`), `GIT_AI_HOOK_SKIP=1`, a missing API key, or a non-comment message already written by the user.
+2. Exits without generation when Git supplies an explicit message (`source == "message"`), `GIT_AI_HOOK_SKIP=1`, no API key is configured, or the user has already written non-comment content.
 3. Collects the complete staged index diff. Binary and lock files contribute only file metadata, not patch content.
 4. Builds the model prompt from the changed-file manifest and text patches. The full diff is collected first; `max_context_tokens` then conservatively limits the patch content sent to the model while retaining file metadata.
 5. Shows an stderr spinner while the request is in flight and clears it on success, timeout, or failure.
@@ -142,7 +141,7 @@ feat: add generated commit messages
 # <original Git comments>
 ```
 
-Git ignores the prompt block because every line is a comment. With the default `debug = false`, the prompt block is omitted. This makes `git commit --no-edit` use the generated message while retaining the editor context. The prompt block can contain staged-diff content, so avoid sharing an editor backup or temporary commit message file if that content is sensitive.
+Git ignores the prompt block because every line is a comment. With the default `debug = false`, the prompt block is omitted. The prompt block can contain staged-diff content, so avoid sharing an editor backup or temporary commit message file if that content is sensitive.
 
 Model errors, timeouts, configuration errors, and message-file errors are logged under the user cache/config area and return success from this tool's hook path, so they do not block a commit. Invalid model output falls back to `chore: update N files`.
 

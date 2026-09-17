@@ -16,7 +16,7 @@ cargo install --path .
 在需要启用钩子的 Git 仓库中运行：
 
 ```bash
-git-ai-hook install
+git ai-hook install
 ```
 
 该命令通过 `git2` 发现仓库，优先使用 `core.hooksPath`，并创建指向当前二进制的 `prepare-commit-msg` 符号链接。如果原本存在其他钩子，会被移动到 `prepare-commit-msg.local`，每次提交时先执行它。
@@ -28,8 +28,8 @@ git-ai-hook install
 创建全局配置文件：
 
 ```bash
-git-ai-hook config init
-git-ai-hook config path
+git ai-hook config init
+git ai-hook config path
 ```
 
 全局配置路径为 `dirs::config_dir()/git-ai-hook/config.toml`。仓库工作区根目录下的 `.git-ai-hook.toml` 可以按字段覆盖全局配置。
@@ -103,13 +103,13 @@ language = "zh-CN"
 ## 命令
 
 ```text
-git-ai-hook install
-git-ai-hook uninstall
-git-ai-hook status
-git-ai-hook generate
-git-ai-hook config path
-git-ai-hook config init [--force]
-git-ai-hook config validate
+git ai-hook install
+git ai-hook uninstall
+git ai-hook status
+git ai-hook generate
+git ai-hook config path
+git ai-hook config init [--force]
+git ai-hook config validate
 ```
 
 - `generate` 收集暂存 diff，并只将干净的提交信息输出到 stdout，不修改 Git 文件。`debug = true` 时，还会输出包含完整提示词的注释块。
@@ -152,7 +152,7 @@ feat: add generated commit messages
 在目标仓库中运行：
 
 ```bash
-git-ai-hook uninstall
+git ai-hook uninstall
 ```
 
 该命令只会删除当前二进制能够识别的受管符号链接。若存在 `prepare-commit-msg.local`，会原子地恢复为 `prepare-commit-msg`；否则仅移除本工具创建的链接。

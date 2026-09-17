@@ -16,7 +16,7 @@ cargo install --path .
 From the Git repository where you want the hook:
 
 ```bash
-git-ai-hook install
+git ai-hook install
 ```
 
 The command discovers the repository with `git2`, respects `core.hooksPath`, and creates a `prepare-commit-msg` symlink to the running binary. If a different hook already exists, it is moved to `prepare-commit-msg.local` and is run first on every commit.
@@ -28,8 +28,8 @@ To make `git commit --no-edit` discard the recorded `#` prompt lines reliably, i
 Create the global configuration file:
 
 ```bash
-git-ai-hook config init
-git-ai-hook config path
+git ai-hook config init
+git ai-hook config path
 ```
 
 The global file is located at `dirs::config_dir()/git-ai-hook/config.toml`. A repository can override individual settings with `.git-ai-hook.toml` at its worktree root.
@@ -103,13 +103,13 @@ language = "en"
 ## Commands
 
 ```text
-git-ai-hook install
-git-ai-hook uninstall
-git-ai-hook status
-git-ai-hook generate
-git-ai-hook config path
-git-ai-hook config init [--force]
-git-ai-hook config validate
+git ai-hook install
+git ai-hook uninstall
+git ai-hook status
+git ai-hook generate
+git ai-hook config path
+git ai-hook config init [--force]
+git ai-hook config validate
 ```
 
 - `generate` collects the staged diff and prints a clean commit message to stdout without changing Git files. With `debug = true`, it also prints the complete prompt block as comments.
@@ -152,7 +152,7 @@ For backward-incompatible changes, generated Conventional Commit subjects use `!
 Run this inside the repository:
 
 ```bash
-git-ai-hook uninstall
+git ai-hook uninstall
 ```
 
 The command removes only a symlink recognized as managed by the current binary. If `prepare-commit-msg.local` exists, it is atomically restored to `prepare-commit-msg`; otherwise the managed link is removed.

@@ -152,3 +152,7 @@ git-ai-hook uninstall
 ```
 
 该命令只会删除当前二进制能够识别的受管符号链接。若存在 `prepare-commit-msg.local`，会原子地恢复为 `prepare-commit-msg`；否则仅移除本工具创建的链接。
+
+## 许可证
+
+本项目采用 [木兰宽松许可证，第 2 版](LICENSE)（`MulanPSL-2.0`）。

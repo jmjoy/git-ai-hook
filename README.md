@@ -152,3 +152,7 @@ git-ai-hook uninstall
 ```
 
 The command removes only a symlink recognized as managed by the current binary. If `prepare-commit-msg.local` exists, it is atomically restored to `prepare-commit-msg`; otherwise the managed link is removed.
+
+## License
+
+Licensed under the [Mulan Permissive Software License, Version 2](LICENSE) (`MulanPSL-2.0`).

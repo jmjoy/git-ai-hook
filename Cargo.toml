@@ -2,6 +2,14 @@
 name = "git-ai-hook"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.90"
+authors = ["jmjoy <jmjoy@apache.org>"]
+description = "AI-powered Git hook that generates Conventional Commit messages from staged diffs"
+repository = "https://github.com/jmjoy/git-ai-hook"
+readme = "README.md"
+license = "MulanPSL-2.0"
+keywords = ["git", "commit", "ai", "hook", "conventional-commits"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 anyhow = "1.0"

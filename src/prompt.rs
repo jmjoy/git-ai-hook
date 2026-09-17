@@ -93,16 +93,21 @@ pub fn is_non_comment_content(content: &str) -> bool {
 
 pub fn assemble_message_file(
     message: &str,
-    prompts: &PromptBundle,
+    prompts: Option<&PromptBundle>,
     original_comments: &str,
 ) -> String {
-    let mut assembled = String::new();
-    assembled.push_str(message.trim());
-    assembled.push_str("\n\n# --- git-ai-hook prompt begin ---\n");
-    append_commented_lines(&mut assembled, &prompts.system);
-    assembled.push_str("# ---\n");
-    append_commented_lines(&mut assembled, &prompts.user);
-    assembled.push_str("# --- git-ai-hook prompt end ---\n");
+    let mut assembled = message.trim().to_string();
+    if let Some(prompts) = prompts {
+        assembled.push_str("\n\n# --- git-ai-hook prompt begin ---\n");
+        append_commented_lines(&mut assembled, &prompts.system);
+        assembled.push_str("# ---\n");
+        append_commented_lines(&mut assembled, &prompts.user);
+        assembled.push_str("# --- git-ai-hook prompt end ---\n");
+    } else if !original_comments.is_empty() {
+        assembled.push_str("\n\n");
+    } else {
+        assembled.push('\n');
+    }
     assembled.push_str(original_comments);
     assembled
 }
@@ -167,6 +172,7 @@ mod tests {
             max_output_tokens: 10,
             timeout_secs: DEFAULT_TIMEOUT_SECS,
             system_prompt: "Only output a commit message.".to_string(),
+            debug: false,
             origins: BTreeMap::from([("api_key", ConfigSource::Environment)]),
         }
     }
@@ -194,10 +200,16 @@ mod tests {
             system: "system\nsecond".to_string(),
             user: "user".to_string(),
         };
-        let result = assemble_message_file("fix: repair", &bundle, "# existing\n");
+        let result = assemble_message_file("fix: repair", Some(&bundle), "# existing\n");
         assert!(result.starts_with("fix: repair\n\n# --- git-ai-hook prompt begin ---"));
         assert!(result.contains("# system\n# second\n# ---\n# user\n"));
         assert!(result.ends_with("# existing\n"));
+    }
+
+    #[test]
+    fn omits_prompt_block_when_not_requested() {
+        let result = assemble_message_file("fix: repair", None, "# existing\n");
+        assert_eq!(result, "fix: repair\n\n# existing\n");
     }
 
     #[test]

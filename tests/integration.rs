@@ -126,17 +126,25 @@ fn stage_file(repository: &Repository, root: &Path, relative: &str, contents: &s
     index.write().expect("write index");
 }
 
-fn write_project_config(root: &Path, base_url: &str) {
+fn write_project_config(root: &Path, base_url: &str, debug: bool) {
     fs::write(
         root.join(".git-ai-hook.toml"),
         format!(
-            "[settings]\nbase_url = \"{base_url}\"\napi_key = \"test-key\"\nmodel = \"mock-model\"\nlanguage = \"zh-CN\"\nreasoning_effort = \"medium\"\nmax_context_tokens = 4096\nmax_output_tokens = 64\ntimeout_secs = 5\n"
+            "[settings]\nbase_url = \"{base_url}\"\napi_key = \"test-key\"\nmodel = \"mock-model\"\nlanguage = \"zh-CN\"\nreasoning_effort = \"medium\"\nmax_context_tokens = 4096\nmax_output_tokens = 64\ntimeout_secs = 5\ndebug = {debug}\n"
         ),
     )
     .expect("write project config");
 }
 
 fn child(command: &mut Command, config_root: &Path) -> std::process::Output {
+    child_with_debug(command, config_root, None)
+}
+
+fn child_with_debug(
+    command: &mut Command,
+    config_root: &Path,
+    debug: Option<&str>,
+) -> std::process::Output {
     for variable in [
         "GIT_AI_HOOK_BASE_URL",
         "GIT_AI_HOOK_API_KEY",
@@ -147,8 +155,12 @@ fn child(command: &mut Command, config_root: &Path) -> std::process::Output {
         "GIT_AI_HOOK_MAX_OUTPUT_TOKENS",
         "GIT_AI_HOOK_TIMEOUT_SECS",
         "GIT_AI_HOOK_SYSTEM_PROMPT",
+        "GIT_AI_HOOK_DEBUG",
     ] {
         command.env_remove(variable);
+    }
+    if let Some(debug) = debug {
+        command.env("GIT_AI_HOOK_DEBUG", debug);
     }
     command
         .env("XDG_CONFIG_HOME", config_root)
@@ -158,7 +170,7 @@ fn child(command: &mut Command, config_root: &Path) -> std::process::Output {
 }
 
 #[test]
-fn installed_hook_generates_prompt_block_and_commit_no_edit_uses_message() {
+fn debug_hook_generates_prompt_block_and_commit_no_edit_uses_message() {
     let (root, repository) = initialize_repository("hook-generation");
     stage_file(&repository, &root, "src/example.rs", "pub fn added() {}\n");
     stage_file(&repository, &root, "Cargo.lock", "lockfile-version = 1\n");
@@ -169,7 +181,7 @@ fn installed_hook_generates_prompt_block_and_commit_no_edit_uses_message() {
         "\0not a text patch\n",
     );
     let mock = MockServer::start(3, 200);
-    write_project_config(&root, &mock.base_url);
+    write_project_config(&root, &mock.base_url, true);
     let config_root = root.join("xdg-config");
     let message_path = root.join(".git/COMMIT_EDITMSG");
     fs::write(
@@ -236,6 +248,113 @@ fn installed_hook_generates_prompt_block_and_commit_no_edit_uses_message() {
     let committed = String::from_utf8(log_output.stdout).expect("utf8 commit message");
     assert!(committed.starts_with("feat: generate commit message"));
     assert!(!committed.contains("git-ai-hook prompt"));
+
+    fs::remove_dir_all(root).expect("remove temporary repository");
+}
+
+#[test]
+fn hook_omits_prompt_block_by_default() {
+    let (root, repository) = initialize_repository("hook-without-debug");
+    stage_file(&repository, &root, "src/default.rs", "pub fn added() {}\n");
+    let mock = MockServer::start(1, 200);
+    write_project_config(&root, &mock.base_url, false);
+    let config_root = root.join("xdg-config");
+    let message_path = root.join(".git/COMMIT_EDITMSG");
+    let original = "# Please enter the commit message.\n";
+    fs::write(&message_path, original).expect("write message template");
+
+    let mut install = Command::new(binary());
+    install.current_dir(&root).arg("install");
+    assert!(child(&mut install, &config_root).status.success());
+
+    let hook = root.join(".git/hooks/prepare-commit-msg");
+    let mut invoke_hook = Command::new(&hook);
+    invoke_hook
+        .current_dir(&root)
+        .arg(&message_path)
+        .arg("template");
+    let output = child(&mut invoke_hook, &config_root);
+    assert!(output.status.success(), "{:?}", output);
+
+    let message = fs::read_to_string(&message_path).expect("read generated message");
+    assert_eq!(
+        message,
+        format!("feat: generate commit message\n\n- include staged changes\n\n{original}")
+    );
+    assert!(!message.contains("git-ai-hook prompt"));
+    assert!(!message.contains("src/default.rs"));
+    assert_eq!(mock.finish().len(), 1);
+
+    fs::remove_dir_all(root).expect("remove temporary repository");
+}
+
+#[test]
+fn debug_environment_override_adds_prompt_block() {
+    let (root, repository) = initialize_repository("debug-environment");
+    stage_file(
+        &repository,
+        &root,
+        "src/environment.rs",
+        "pub fn added() {}\n",
+    );
+    let mock = MockServer::start(1, 200);
+    write_project_config(&root, &mock.base_url, false);
+    let config_root = root.join("xdg-config");
+    let message_path = root.join(".git/COMMIT_EDITMSG");
+    fs::write(&message_path, "# Please enter the commit message.\n")
+        .expect("write message template");
+
+    let mut install = Command::new(binary());
+    install.current_dir(&root).arg("install");
+    assert!(child(&mut install, &config_root).status.success());
+
+    let hook = root.join(".git/hooks/prepare-commit-msg");
+    let mut invoke_hook = Command::new(&hook);
+    invoke_hook
+        .current_dir(&root)
+        .arg(&message_path)
+        .arg("template");
+    let output = child_with_debug(&mut invoke_hook, &config_root, Some("true"));
+    assert!(output.status.success(), "{:?}", output);
+
+    let message = fs::read_to_string(&message_path).expect("read generated message");
+    assert!(message.contains("# --- git-ai-hook prompt begin ---"));
+    assert!(message.contains("# diff --git a/src/environment.rs b/src/environment.rs"));
+    assert_eq!(mock.finish().len(), 1);
+
+    fs::remove_dir_all(root).expect("remove temporary repository");
+}
+
+#[test]
+fn generate_emits_prompt_block_only_when_debug_enabled() {
+    let (root, repository) = initialize_repository("generate-debug-output");
+    stage_file(&repository, &root, "src/generate.rs", "pub fn added() {}\n");
+    let mock = MockServer::start(2, 200);
+    let config_root = root.join("xdg-config");
+
+    write_project_config(&root, &mock.base_url, false);
+    let mut clean_generate = Command::new(binary());
+    clean_generate.current_dir(&root).arg("generate");
+    let clean_output = child(&mut clean_generate, &config_root);
+    assert!(clean_output.status.success(), "{:?}", clean_output);
+    let clean_stdout = String::from_utf8(clean_output.stdout).expect("clean stdout is UTF-8");
+    assert_eq!(
+        clean_stdout,
+        "feat: generate commit message\n\n- include staged changes\n"
+    );
+
+    write_project_config(&root, &mock.base_url, true);
+    let mut debug_generate = Command::new(binary());
+    debug_generate.current_dir(&root).arg("generate");
+    let debug_output = child(&mut debug_generate, &config_root);
+    assert!(debug_output.status.success(), "{:?}", debug_output);
+    let debug_stdout = String::from_utf8(debug_output.stdout).expect("debug stdout is UTF-8");
+    assert!(
+        debug_stdout.starts_with("feat: generate commit message\n\n- include staged changes\n\n")
+    );
+    assert!(debug_stdout.contains("# --- git-ai-hook prompt begin ---"));
+    assert!(debug_stdout.contains("# diff --git a/src/generate.rs b/src/generate.rs"));
+    assert_eq!(mock.finish().len(), 2);
 
     fs::remove_dir_all(root).expect("remove temporary repository");
 }
@@ -344,7 +463,7 @@ fn model_failure_is_logged_without_blocking_the_commit() {
         "pub fn changed() {}\n",
     );
     let mock = MockServer::start(1, 500);
-    write_project_config(&root, &mock.base_url);
+    write_project_config(&root, &mock.base_url, false);
     let config_root = root.join("xdg-config");
     let message_path = root.join(".git/COMMIT_EDITMSG");
     let original = "# Git comment that must remain.\n";
@@ -386,7 +505,7 @@ fn user_written_message_skips_generation_without_contacting_the_model() {
         listener.local_addr().expect("endpoint address")
     );
     drop(listener);
-    write_project_config(&root, &unavailable_base_url);
+    write_project_config(&root, &unavailable_base_url, false);
     let config_root = root.join("xdg-config");
     let message_path = root.join(".git/COMMIT_EDITMSG");
     let original = "fix: keep the user-written message\n";

@@ -53,7 +53,7 @@ fn run_hook_inner(arguments: &[OsString]) -> Result<i32> {
     let changes = collect_staged_changes(&repository)?;
     let runtime = tokio::runtime::Runtime::new().context("could not start the async runtime")?;
     let (message, prompts) = runtime.block_on(generate_message(&config, &changes))?;
-    let assembled = assemble_message_file(&message, &prompts, &original);
+    let assembled = assemble_message_file(&message, config.debug.then_some(&prompts), &original);
     fs::write(&message_path, assembled).with_context(|| {
         format!(
             "could not write commit message file {}",

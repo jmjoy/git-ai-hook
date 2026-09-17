@@ -13,6 +13,7 @@ pub const DEFAULT_LANGUAGE: &str = "en";
 pub const DEFAULT_MAX_CONTEXT_TOKENS: u64 = 128_000;
 pub const DEFAULT_MAX_OUTPUT_TOKENS: u64 = 16_384;
 pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
+pub const DEFAULT_DEBUG: bool = false;
 
 pub const ENV_BASE_URL: &str = "GIT_AI_HOOK_BASE_URL";
 pub const ENV_API_KEY: &str = "GIT_AI_HOOK_API_KEY";
@@ -23,6 +24,7 @@ pub const ENV_MAX_CONTEXT_TOKENS: &str = "GIT_AI_HOOK_MAX_CONTEXT_TOKENS";
 pub const ENV_MAX_OUTPUT_TOKENS: &str = "GIT_AI_HOOK_MAX_OUTPUT_TOKENS";
 pub const ENV_TIMEOUT_SECS: &str = "GIT_AI_HOOK_TIMEOUT_SECS";
 pub const ENV_SYSTEM_PROMPT: &str = "GIT_AI_HOOK_SYSTEM_PROMPT";
+pub const ENV_DEBUG: &str = "GIT_AI_HOOK_DEBUG";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigSource {
@@ -55,6 +57,7 @@ pub struct EffectiveConfig {
     pub max_output_tokens: u64,
     pub timeout_secs: u64,
     pub system_prompt: String,
+    pub debug: bool,
     pub(crate) origins: BTreeMap<&'static str, ConfigSource>,
 }
 
@@ -91,6 +94,7 @@ struct PartialSettings {
     max_output_tokens: Option<u64>,
     timeout_secs: Option<u64>,
     system_prompt: Option<String>,
+    debug: Option<bool>,
 }
 
 pub fn global_config_path() -> Result<PathBuf> {
@@ -193,6 +197,7 @@ model = "{DEFAULT_MODEL}"
 # max_context_tokens = {DEFAULT_MAX_CONTEXT_TOKENS}
 # max_output_tokens = {DEFAULT_MAX_OUTPUT_TOKENS}
 # timeout_secs = {DEFAULT_TIMEOUT_SECS}
+# debug = {DEFAULT_DEBUG}
 # system_prompt = """
 {commented_prompt}
 # """
@@ -216,6 +221,7 @@ fn default_config() -> EffectiveConfig {
         max_output_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
         timeout_secs: DEFAULT_TIMEOUT_SECS,
         system_prompt: default_system_prompt().to_string(),
+        debug: DEFAULT_DEBUG,
         origins,
     }
 }
@@ -247,6 +253,7 @@ fn environment_settings() -> Result<PartialSettings> {
         max_output_tokens: parse_env_u64(ENV_MAX_OUTPUT_TOKENS)?,
         timeout_secs: parse_env_u64(ENV_TIMEOUT_SECS)?,
         system_prompt: env_value(ENV_SYSTEM_PROMPT)?,
+        debug: parse_env_bool(ENV_DEBUG)?,
     })
 }
 
@@ -266,6 +273,19 @@ fn parse_env_u64(name: &str) -> Result<Option<u64>> {
         .parse::<u64>()
         .with_context(|| format!("{name} must be an unsigned integer"))?;
     Ok(Some(parsed))
+}
+
+fn parse_env_bool(name: &str) -> Result<Option<bool>> {
+    let Some(value) = env_value(name)? else {
+        return Ok(None);
+    };
+    Ok(Some(parse_bool(&value, name)?))
+}
+
+fn parse_bool(value: &str, name: &str) -> Result<bool> {
+    value
+        .parse::<bool>()
+        .with_context(|| format!("{name} must be true or false"))
 }
 
 fn apply_settings(config: &mut EffectiveConfig, settings: PartialSettings, source: ConfigSource) {
@@ -332,6 +352,13 @@ fn apply_settings(config: &mut EffectiveConfig, settings: PartialSettings, sourc
         source,
         &mut config.origins,
     );
+    apply_bool(
+        &mut config.debug,
+        settings.debug,
+        "debug",
+        source,
+        &mut config.origins,
+    );
 }
 
 fn apply_string(
@@ -363,6 +390,19 @@ fn apply_option_string(
 fn apply_u64(
     destination: &mut u64,
     value: Option<u64>,
+    field: &'static str,
+    source: ConfigSource,
+    origins: &mut BTreeMap<&'static str, ConfigSource>,
+) {
+    if let Some(value) = value {
+        *destination = value;
+        origins.insert(field, source);
+    }
+}
+
+fn apply_bool(
+    destination: &mut bool,
+    value: Option<bool>,
     field: &'static str,
     source: ConfigSource,
     origins: &mut BTreeMap<&'static str, ConfigSource>,
@@ -440,6 +480,7 @@ fn field_names() -> &'static [&'static str] {
         "max_output_tokens",
         "timeout_secs",
         "system_prompt",
+        "debug",
     ]
 }
 
@@ -474,7 +515,9 @@ mod tests {
         assert_eq!(settings.max_context_tokens, None);
         assert_eq!(settings.max_output_tokens, None);
         assert_eq!(settings.timeout_secs, None);
+        assert_eq!(settings.debug, None);
         assert_eq!(settings.system_prompt, None);
+        assert!(template.contains("# debug = false"));
         assert!(template.contains("# system_prompt = \"\"\""));
         for line in default_system_prompt().lines() {
             assert!(template.contains(&format!("# {line}")));
@@ -489,6 +532,7 @@ mod tests {
             PartialSettings {
                 model: Some("global-model".to_string()),
                 language: Some("pt-BR".to_string()),
+                debug: Some(false),
                 ..Default::default()
             },
             ConfigSource::Global,
@@ -497,6 +541,7 @@ mod tests {
             &mut config,
             PartialSettings {
                 model: Some("project-model".to_string()),
+                debug: Some(true),
                 ..Default::default()
             },
             ConfigSource::Project,
@@ -505,6 +550,7 @@ mod tests {
             &mut config,
             PartialSettings {
                 api_key: Some("environment-key".to_string()),
+                debug: Some(false),
                 ..Default::default()
             },
             ConfigSource::Environment,
@@ -513,9 +559,20 @@ mod tests {
         assert_eq!(config.model, "project-model");
         assert_eq!(config.language, "pt-BR");
         assert_eq!(config.api_key.as_deref(), Some("environment-key"));
+        assert!(!config.debug);
         assert_eq!(config.source_for("model"), ConfigSource::Project);
         assert_eq!(config.source_for("language"), ConfigSource::Global);
         assert_eq!(config.source_for("api_key"), ConfigSource::Environment);
+        assert_eq!(config.source_for("debug"), ConfigSource::Environment);
+    }
+
+    #[test]
+    fn defaults_debug_to_false_and_parses_boolean_environment_values() {
+        assert!(!default_config().debug);
+        assert!(parse_bool("true", ENV_DEBUG).expect("parse true"));
+        assert!(!parse_bool("false", ENV_DEBUG).expect("parse false"));
+        let error = parse_bool("yes", ENV_DEBUG).expect_err("reject invalid boolean");
+        assert!(error.to_string().contains("must be true or false"));
     }
 
     #[test]

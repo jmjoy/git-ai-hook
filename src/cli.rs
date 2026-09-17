@@ -5,6 +5,7 @@ use crate::config::{
 use crate::diff::collect_staged_changes;
 use crate::install::{self, InstallResult, UninstallResult};
 use crate::llm::{generate_message, validate_connection};
+use crate::prompt::assemble_message_file;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::ffi::OsString;
@@ -95,8 +96,9 @@ fn generate_command() -> Result<i32> {
     validate_for_request(&config)?;
     let changes = collect_staged_changes(&repository)?;
     let runtime = tokio::runtime::Runtime::new().context("could not start the async runtime")?;
-    let (message, _) = runtime.block_on(generate_message(&config, &changes))?;
-    println!("{message}");
+    let (message, prompts) = runtime.block_on(generate_message(&config, &changes))?;
+    let output = assemble_message_file(&message, config.debug.then_some(&prompts), "");
+    print!("{output}");
     Ok(0)
 }
 
@@ -183,6 +185,11 @@ fn status_command() -> Result<i32> {
     println!(
         "Context/output tokens: {}/{}",
         config.max_context_tokens, config.max_output_tokens
+    );
+    println!(
+        "Debug prompt comments: {} ({})",
+        if config.debug { "enabled" } else { "disabled" },
+        config.source_for("debug")
     );
     Ok(0)
 }

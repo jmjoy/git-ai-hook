@@ -44,12 +44,15 @@ model = "gpt-4o-mini"
 # max_context_tokens = 128000
 # max_output_tokens = 16384
 # timeout_secs = 60
+# debug = false
 # system_prompt = """
 # <custom system prompt>
 # """
 ```
 
 `language` accepts BCP 47-style language tags such as `en`, `zh-CN`, and `pt-BR`. The configured language is appended to the system prompt as a required output-language instruction.
+
+`debug` defaults to `false`. Set it to `true` to append the complete system and user prompts as comments after generated messages. The user prompt can include staged diff content.
 
 Each field is resolved independently in this order:
 
@@ -70,6 +73,7 @@ GIT_AI_HOOK_MAX_CONTEXT_TOKENS
 GIT_AI_HOOK_MAX_OUTPUT_TOKENS
 GIT_AI_HOOK_TIMEOUT_SECS
 GIT_AI_HOOK_SYSTEM_PROMPT
+GIT_AI_HOOK_DEBUG
 ```
 
 Only the `[settings]` TOML table is supported. Legacy `[api]` configuration is rejected so a typo does not silently fall back to defaults.
@@ -108,7 +112,7 @@ git-ai-hook config init [--force]
 git-ai-hook config validate
 ```
 
-- `generate` collects the staged diff and prints a clean commit message to stdout without changing Git files.
+- `generate` collects the staged diff and prints a clean commit message to stdout without changing Git files. With `debug = true`, it also prints the complete prompt block as comments.
 - `status` reports hook state, configuration sources, and whether an API key is present. It never prints key material.
 - `config validate` validates the effective local configuration and sends a minimal real completion request to the configured model. It can incur a small provider charge.
 - `config init` refuses to overwrite an existing global file unless `--force` is supplied.
@@ -122,9 +126,9 @@ When Git invokes the hook, `git-ai-hook`:
 3. Collects the complete staged index diff. Binary and lock files contribute only file metadata, not patch content.
 4. Builds the model prompt from the changed-file manifest and text patches. The full diff is collected first; `max_context_tokens` then conservatively limits the patch content sent to the model while retaining file metadata.
 5. Shows an stderr spinner while the request is in flight and clears it on success, timeout, or failure.
-6. Inserts the generated message first, then a comment block containing the complete system and user prompts, and finally the original Git comment content unchanged.
+6. Inserts the generated message first and preserves the original Git comment content unchanged. With `debug = true`, it inserts a comment block containing the complete system and user prompts between them.
 
-The resulting message file has this shape:
+With `debug = true`, the resulting message file has this shape:
 
 ```text
 feat: add generated commit messages
@@ -137,7 +141,7 @@ feat: add generated commit messages
 # <original Git comments>
 ```
 
-Git ignores the prompt block because every line is a comment. This makes `git commit --no-edit` use the generated message while retaining the editor context. The prompt block can contain staged-diff content, so avoid sharing an editor backup or temporary commit message file if that content is sensitive.
+Git ignores the prompt block because every line is a comment. With the default `debug = false`, the prompt block is omitted. This makes `git commit --no-edit` use the generated message while retaining the editor context. The prompt block can contain staged-diff content, so avoid sharing an editor backup or temporary commit message file if that content is sensitive.
 
 Model errors, timeouts, configuration errors, and message-file errors are logged under the user cache/config area and return success from this tool's hook path, so they do not block a commit. Invalid model output falls back to `chore: update N files`.
 

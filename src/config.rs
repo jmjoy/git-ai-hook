@@ -11,8 +11,8 @@ pub const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEFAULT_MODEL: &str = "gpt-4o-mini";
 pub const DEFAULT_LANGUAGE: &str = "en";
 pub const DEFAULT_MAX_CONTEXT_TOKENS: u64 = 128_000;
-pub const DEFAULT_MAX_OUTPUT_TOKENS: u64 = 400;
-pub const DEFAULT_TIMEOUT_SECS: u64 = 10;
+pub const DEFAULT_MAX_OUTPUT_TOKENS: u64 = 16_384;
+pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
 
 pub const ENV_BASE_URL: &str = "GIT_AI_HOOK_BASE_URL";
 pub const ENV_API_KEY: &str = "GIT_AI_HOOK_API_KEY";
@@ -176,18 +176,28 @@ pub fn write_global_template(force: bool) -> Result<PathBuf> {
     Ok(path)
 }
 
-pub fn config_template() -> &'static str {
-    r#"[settings]
-base_url = "https://api.openai.com/v1"
+pub fn config_template() -> String {
+    let commented_prompt = default_system_prompt()
+        .lines()
+        .map(|line| format!("# {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
+        r#"[settings]
+base_url = "{DEFAULT_BASE_URL}"
 api_key = ""
-model = "gpt-4o-mini"
-language = "en"
+model = "{DEFAULT_MODEL}"
+# language = "{DEFAULT_LANGUAGE}"
 # reasoning_effort = "medium"
-max_context_tokens = 128000
-max_output_tokens = 400
-timeout_secs = 10
-# system_prompt = "Only output a commit message."
+# max_context_tokens = {DEFAULT_MAX_CONTEXT_TOKENS}
+# max_output_tokens = {DEFAULT_MAX_OUTPUT_TOKENS}
+# timeout_secs = {DEFAULT_TIMEOUT_SECS}
+# system_prompt = """
+{commented_prompt}
+# """
 "#
+    )
 }
 
 fn default_config() -> EffectiveConfig {
@@ -211,7 +221,7 @@ fn default_config() -> EffectiveConfig {
 }
 
 pub fn default_system_prompt() -> &'static str {
-    "Only output a commit message. Use this format:\n\n<type>: <one-line summary>\n\n- <optional bullet>\n\nAllowed types: feat, fix, refactor, docs, style, test, chore, perf, build, ci. The first line must be 72 characters or fewer. Bullets are optional."
+    "You are a Git commit message generation assistant. Only output the commit message; do not include explanations, labels, or Markdown code fences.\n\nUse this format:\n\n<type>[!]: <one-line summary>\n\n- <detail 1>\n- <detail 2>\n\nAllowed types: feat, fix, refactor, docs, style, test, chore, perf, build, ci. Add `!` immediately after the type only when the change breaks backward compatibility, for example `feat!: remove the legacy API`. The first line must be 72 characters or fewer. Include zero or more detail bullets after the first line. Every detail bullet must start with `- `. When there are no details, omit both the blank separator and bullets."
 }
 
 fn load_file(path: &Path) -> Result<Option<PartialSettings>> {
@@ -453,6 +463,25 @@ mod tests {
     }
 
     #[test]
+    fn template_comments_out_optional_settings_and_default_system_prompt() {
+        let template = config_template();
+        let parsed: FileConfig = toml::from_str(&template).expect("parse config template");
+        let settings = parsed.settings.expect("settings table");
+        assert_eq!(settings.base_url.as_deref(), Some(DEFAULT_BASE_URL));
+        assert_eq!(settings.api_key.as_deref(), Some(""));
+        assert_eq!(settings.model.as_deref(), Some(DEFAULT_MODEL));
+        assert_eq!(settings.language, None);
+        assert_eq!(settings.max_context_tokens, None);
+        assert_eq!(settings.max_output_tokens, None);
+        assert_eq!(settings.timeout_secs, None);
+        assert_eq!(settings.system_prompt, None);
+        assert!(template.contains("# system_prompt = \"\"\""));
+        for line in default_system_prompt().lines() {
+            assert!(template.contains(&format!("# {line}")));
+        }
+    }
+
+    #[test]
     fn applies_layers_per_field() {
         let mut config = default_config();
         apply_settings(
@@ -492,5 +521,14 @@ mod tests {
     #[test]
     fn rejects_legacy_api_table() {
         assert!(toml::from_str::<FileConfig>("[api]\nmodel = \"old\"\n").is_err());
+    }
+
+    #[test]
+    fn default_prompt_defines_identity_and_optional_bullet_count() {
+        let prompt = default_system_prompt();
+        assert!(prompt.starts_with("You are a Git commit message generation assistant."));
+        assert!(prompt.contains("zero or more detail bullets"));
+        assert!(prompt.contains("Every detail bullet must start with `- `"));
+        assert!(prompt.contains("breaks backward compatibility"));
     }
 }

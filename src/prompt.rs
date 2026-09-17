@@ -125,6 +125,7 @@ fn is_valid_message(message: &str) -> bool {
     let Some((kind, summary)) = first_line.split_once(": ") else {
         return false;
     };
+    let kind = kind.strip_suffix('!').unwrap_or(kind);
     ALLOWED_TYPES.contains(&kind) && !summary.trim().is_empty()
 }
 
@@ -175,6 +176,14 @@ mod tests {
         assert_eq!(
             clean_model_output("```text\nfeat: add hook\n\n- wire it up\n```", 2),
             "feat: add hook\n\n- wire it up"
+        );
+        assert_eq!(
+            clean_model_output("feat!: remove legacy API", 2),
+            "feat!: remove legacy API"
+        );
+        assert_eq!(
+            clean_model_output("feat!!: invalid", 2),
+            "chore: update 2 files"
         );
         assert_eq!(clean_model_output("A title", 2), "chore: update 2 files");
     }

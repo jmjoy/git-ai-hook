@@ -39,12 +39,14 @@ The global file is located at `dirs::config_dir()/git-ai-hook/config.toml`. A re
 base_url = "https://api.openai.com/v1"
 api_key = "sk-..."
 model = "gpt-4o-mini"
-language = "en"
+# language = "en"
 # reasoning_effort = "medium"
-max_context_tokens = 128000
-max_output_tokens = 400
-timeout_secs = 10
-# system_prompt = "Only output a commit message."
+# max_context_tokens = 128000
+# max_output_tokens = 16384
+# timeout_secs = 60
+# system_prompt = """
+# <custom system prompt>
+# """
 ```
 
 `language` accepts BCP 47-style language tags such as `en`, `zh-CN`, and `pt-BR`. The configured language is appended to the system prompt as a required output-language instruction.
@@ -138,6 +140,8 @@ feat: add generated commit messages
 Git ignores the prompt block because every line is a comment. This makes `git commit --no-edit` use the generated message while retaining the editor context. The prompt block can contain staged-diff content, so avoid sharing an editor backup or temporary commit message file if that content is sensitive.
 
 Model errors, timeouts, configuration errors, and message-file errors are logged under the user cache/config area and return success from this tool's hook path, so they do not block a commit. Invalid model output falls back to `chore: update N files`.
+
+For backward-incompatible changes, generated Conventional Commit subjects use `!` immediately after the type, for example `feat!: remove the legacy API`.
 
 ## Uninstall
 

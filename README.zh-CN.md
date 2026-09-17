@@ -39,12 +39,14 @@ git-ai-hook config path
 base_url = "https://api.openai.com/v1"
 api_key = "sk-..."
 model = "gpt-4o-mini"
-language = "zh-CN"
+# language = "zh-CN"
 # reasoning_effort = "medium"
-max_context_tokens = 128000
-max_output_tokens = 400
-timeout_secs = 10
-# system_prompt = "只输出提交信息。"
+# max_context_tokens = 128000
+# max_output_tokens = 16384
+# timeout_secs = 60
+# system_prompt = """
+# <自定义 system prompt>
+# """
 ```
 
 `language` 使用 BCP 47 风格语言码，例如 `en`、`zh-CN` 和 `pt-BR`。该语言要求会自动追加到 system prompt。
@@ -138,6 +140,8 @@ feat: add generated commit messages
 由于提示词块的每一行都以 `#` 开头，Git 会忽略它。因此 `git commit --no-edit` 会直接使用生成内容，同时编辑器仍可看到完整上下文。提示词块可能含有暂存 diff；若 diff 敏感，请注意编辑器备份和临时提交信息文件。
 
 模型错误、超时、配置错误和消息文件错误会写入用户缓存/配置目录下的日志，本工具的钩子路径始终返回成功，不阻塞提交。模型输出不符合格式时会回退为 `chore: update N files`。
+
+如果变更破坏向后兼容性，生成的 Conventional Commit 首行会在 type 后紧跟 `!`，例如 `feat!: remove the legacy API`。
 
 ## 卸载
 

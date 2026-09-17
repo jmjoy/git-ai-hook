@@ -1,4 +1,5 @@
 # git-ai-hook
+
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 `git-ai-hook` generates Conventional Commit-style messages from the staged Git diff. It can be used directly from the command line or installed as a `prepare-commit-msg` hook.

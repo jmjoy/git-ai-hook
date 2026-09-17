@@ -1,4 +1,5 @@
 # git-ai-hook
+
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 `git-ai-hook` 根据 Git 暂存区 diff 生成 Conventional Commit 风格的提交信息。它既可作为 CLI 使用，也可安装为 `prepare-commit-msg` 钩子。

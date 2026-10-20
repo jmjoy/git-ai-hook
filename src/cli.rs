@@ -4,7 +4,7 @@ use crate::config::{
 };
 use crate::diff::collect_staged_changes;
 use crate::install::{self, InstallResult, UninstallResult};
-use crate::llm::{generate_message, validate_connection};
+use crate::llm::{generate_message, generate_raw_message, validate_connection};
 use crate::prompt::assemble_message_file;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -30,8 +30,12 @@ enum Command {
     Uninstall,
     /// Show hook and effective configuration status.
     Status,
-    /// Generate a clean commit message from the staged diff and print it.
-    Generate,
+    /// Generate a commit message from the staged diff and print it.
+    Generate {
+        /// Print the model response without cleanup or fallback for invalid output.
+        #[arg(long)]
+        no_fallback: bool,
+    },
     /// Inspect or initialize configuration.
     Config {
         #[command(subcommand)]
@@ -59,7 +63,7 @@ pub fn run_cli(arguments: Vec<OsString>) -> Result<i32> {
         Command::Install => install_command(),
         Command::Uninstall => uninstall_command(),
         Command::Status => status_command(),
-        Command::Generate => generate_command(),
+        Command::Generate { no_fallback } => generate_command(no_fallback),
         Command::Config { command } => config_command(command),
     }
 }
@@ -90,13 +94,17 @@ fn uninstall_command() -> Result<i32> {
     Ok(0)
 }
 
-fn generate_command() -> Result<i32> {
+fn generate_command(no_fallback: bool) -> Result<i32> {
     let repository = discover_repository()?;
     let config = load_effective(Some(&repository))?;
     validate_for_request(&config)?;
     let changes = collect_staged_changes(&repository)?;
     let runtime = tokio::runtime::Runtime::new().context("could not start the async runtime")?;
-    let (message, prompts) = runtime.block_on(generate_message(&config, &changes))?;
+    let (message, prompts) = if no_fallback {
+        runtime.block_on(generate_raw_message(&config, &changes))?
+    } else {
+        runtime.block_on(generate_message(&config, &changes))?
+    };
     let output = assemble_message_file(&message, config.debug.then_some(&prompts), "");
     print!("{output}");
     Ok(0)

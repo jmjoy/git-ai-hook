@@ -18,6 +18,31 @@ struct MockServer {
 
 impl MockServer {
     fn start(request_count: usize, status: u16) -> Self {
+        Self::start_with_content(
+            request_count,
+            status,
+            "feat: generate commit message\n\n- include staged changes",
+        )
+    }
+
+    fn start_with_content(request_count: usize, status: u16, content: &str) -> Self {
+        let body = if status == 200 {
+            serde_json::json!({
+                "id": "mock",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "mock-model",
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop",
+                }],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            })
+            .to_string()
+        } else {
+            r#"{"error":{"message":"mock failure"}}"#.to_string()
+        };
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
         let address = listener.local_addr().expect("mock address");
         let handle = thread::spawn(move || {
@@ -29,11 +54,6 @@ impl MockServer {
                     .expect("set timeout");
                 let request = read_http_request(&mut stream);
                 requests.push(request);
-                let body = if status == 200 {
-                    r#"{"id":"mock","object":"chat.completion","created":0,"model":"mock-model","choices":[{"index":0,"message":{"role":"assistant","content":"feat: generate commit message\n\n- include staged changes"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#
-                } else {
-                    r#"{"error":{"message":"mock failure"}}"#
-                };
                 let reason = if status == 200 {
                     "OK"
                 } else {
@@ -355,6 +375,51 @@ fn generate_emits_prompt_block_only_when_debug_enabled() {
     assert!(debug_stdout.contains("# --- git-ai-hook prompt begin ---"));
     assert!(debug_stdout.contains("# diff --git a/src/generate.rs b/src/generate.rs"));
     assert_eq!(mock.finish().len(), 2);
+
+    fs::remove_dir_all(root).expect("remove temporary repository");
+}
+
+#[test]
+fn generate_no_fallback_preserves_invalid_model_response_and_code_fences() {
+    let (root, repository) = initialize_repository("generate-no-fallback");
+    stage_file(&repository, &root, "src/generate.rs", "pub fn added() {}\n");
+    let response = "```text\nThis is not a Conventional Commit\n```";
+    let mock = MockServer::start_with_content(3, 200, response);
+    let config_root = root.join("xdg-config");
+    write_project_config(&root, &mock.base_url, false);
+
+    let mut default_generate = Command::new(binary());
+    default_generate.current_dir(&root).arg("generate");
+    let default_output = child(&mut default_generate, &config_root);
+    assert!(default_output.status.success(), "{:?}", default_output);
+    assert_eq!(
+        String::from_utf8(default_output.stdout).expect("default stdout is UTF-8"),
+        "chore: update 1 files\n"
+    );
+
+    let mut raw_generate = Command::new(binary());
+    raw_generate
+        .current_dir(&root)
+        .args(["generate", "--no-fallback"]);
+    let raw_output = child(&mut raw_generate, &config_root);
+    assert!(raw_output.status.success(), "{:?}", raw_output);
+    assert_eq!(
+        String::from_utf8(raw_output.stdout).expect("raw stdout is UTF-8"),
+        format!("{response}\n")
+    );
+
+    write_project_config(&root, &mock.base_url, true);
+    let mut debug_generate = Command::new(binary());
+    debug_generate
+        .current_dir(&root)
+        .args(["generate", "--no-fallback"]);
+    let debug_output = child(&mut debug_generate, &config_root);
+    assert!(debug_output.status.success(), "{:?}", debug_output);
+    let debug_stdout = String::from_utf8(debug_output.stdout).expect("debug stdout is UTF-8");
+    assert!(debug_stdout.starts_with(&format!("{response}\n\n")));
+    assert!(debug_stdout.contains("# --- git-ai-hook prompt begin ---"));
+    assert!(debug_stdout.contains("# diff --git a/src/generate.rs b/src/generate.rs"));
+    assert_eq!(mock.finish().len(), 3);
 
     fs::remove_dir_all(root).expect("remove temporary repository");
 }

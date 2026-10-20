@@ -114,6 +114,7 @@ To make `git commit --no-edit` discard recorded `#` prompt lines reliably, insta
 ## Additional Commands
 
 - `generate` collects the staged diff and prints a clean commit message to stdout without changing Git files. With `debug = true`, it also prints the complete prompt block as comments.
+- `generate --no-fallback` prints the model response without format validation, code-fence removal, or replacement with `chore: update N files`, so you can inspect invalid output. Leading and trailing whitespace is trimmed. With `debug = true`, prompt comments are still appended.
 - `status` reports hook state, configuration sources, and whether an API key is present. It never prints key material.
 - `config validate` validates the effective local configuration and sends a minimal real completion request to the configured model. It can incur a small provider charge.
 

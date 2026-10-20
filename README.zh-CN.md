@@ -114,6 +114,7 @@ language = "zh-CN"
 ## 其他命令
 
 - `generate` 收集暂存 diff，并只将干净的提交信息输出到 stdout，不修改 Git 文件。`debug = true` 时，还会输出包含完整提示词的注释块。
+- `generate --no-fallback` 输出模型返回的正文，跳过格式校验、代码围栏清理和 `chore: update N files` 回退，方便检查不合规范的输出。首尾空白仍会裁去；`debug = true` 时仍会追加提示词注释。
 - `status` 显示钩子状态、配置来源和 API Key 是否存在，不会输出密钥内容。
 - `config validate` 校验合并后的本地配置，并向已配置的模型发送一次最小真实请求；该操作可能产生少量模型费用。
 

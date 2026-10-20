@@ -160,6 +160,15 @@ fn child(command: &mut Command, config_root: &Path) -> std::process::Output {
     child_with_debug(command, config_root, None)
 }
 
+fn hook_log_path(config_root: &Path) -> PathBuf {
+    let cache_root = if cfg!(target_os = "macos") {
+        config_root.join("Library/Caches")
+    } else {
+        config_root.to_path_buf()
+    };
+    cache_root.join("git-ai-hook/git-ai-hook.log")
+}
+
 fn child_with_debug(
     command: &mut Command,
     config_root: &Path,
@@ -183,6 +192,7 @@ fn child_with_debug(
         command.env("GIT_AI_HOOK_DEBUG", debug);
     }
     command
+        .env("HOME", config_root)
         .env("XDG_CONFIG_HOME", config_root)
         .env("XDG_CACHE_HOME", config_root)
         .output()
@@ -549,7 +559,7 @@ fn model_failure_is_logged_without_blocking_the_commit() {
     );
     assert_eq!(mock.finish().len(), 1);
 
-    let log = config_root.join("git-ai-hook/git-ai-hook.log");
+    let log = hook_log_path(&config_root);
     assert!(log.exists(), "expected hook error log at {}", log.display());
     assert!(
         fs::read_to_string(log)
@@ -589,7 +599,7 @@ fn user_written_message_skips_generation_without_contacting_the_model() {
         fs::read_to_string(&message_path).expect("read manual message"),
         original
     );
-    assert!(!config_root.join("git-ai-hook/git-ai-hook.log").exists());
+    assert!(!hook_log_path(&config_root).exists());
 
     fs::remove_dir_all(root).expect("remove temporary repository");
 }

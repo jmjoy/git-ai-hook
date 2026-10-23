@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use rig_core::{
     client::CompletionClient,
-    completion::{AssistantContent, CompletionModel},
+    completion::{AssistantContent, CompletionError, CompletionModel},
     providers::openai,
 };
 use serde_json::json;
@@ -80,18 +80,38 @@ async fn request_completion(config: &EffectiveConfig, prompts: &PromptBundle) ->
         .context("could not create the OpenAI-compatible client")?
         .completions_api();
     let model = client.completion_model(config.model.trim());
-    let mut request = model
-        .completion_request(prompts.user.clone())
-        .preamble(prompts.system.clone())
-        .max_tokens(config.max_output_tokens);
+    let send_request = |use_developer_role| {
+        let mut request = model
+            .completion_request(prompts.user.clone())
+            .preamble(prompts.system.clone())
+            .max_tokens(config.max_output_tokens);
 
-    if let Some(reasoning_effort) = config.reasoning_effort.as_deref() {
-        request = request.additional_params(json!({
-            "reasoning_effort": reasoning_effort.trim(),
-        }));
-    }
+        if let Some(reasoning_effort) = config.reasoning_effort.as_deref() {
+            request = request.additional_params(json!({
+                "reasoning_effort": reasoning_effort.trim(),
+            }));
+        }
 
-    let response = tokio::time::timeout(Duration::from_secs(config.timeout_secs), request.send())
+        if use_developer_role {
+            // Rig's typed Chat Completions messages serialize instructions as `system`.
+            // Override the wire messages to preserve their priority on developer-only APIs.
+            request = request.additional_params(json!({
+                "messages": [
+                    {"role": "developer", "content": prompts.system},
+                    {"role": "user", "content": prompts.user},
+                ],
+            }));
+        }
+
+        request.send()
+    };
+    let completion = async {
+        match send_request(false).await {
+            Err(error) if system_role_rejected(&error) => send_request(true).await,
+            result => result,
+        }
+    };
+    let response = tokio::time::timeout(Duration::from_secs(config.timeout_secs), completion)
         .await
         .map_err(|_| {
             anyhow::anyhow!(
@@ -115,4 +135,28 @@ async fn request_completion(config: &EffectiveConfig, prompts: &PromptBundle) ->
         bail!("model returned no text completion")
     }
     Ok(text)
+}
+
+fn system_role_rejected(error: &CompletionError) -> bool {
+    if error
+        .provider_response_status()
+        .map(|status| status.as_u16())
+        != Some(400)
+    {
+        return false;
+    }
+    let Ok(Some(body)) = error.provider_response_json() else {
+        return false;
+    };
+    let Some(message) = body
+        .pointer("/error/message")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return false;
+    };
+    let message = message.to_ascii_lowercase();
+    message.contains("system messages are not allowed")
+        || (message.contains("messages[0].role")
+            && message.contains("'system'")
+            && message.contains("does not support"))
 }

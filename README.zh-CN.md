@@ -85,7 +85,7 @@ GIT_AI_HOOK_DEBUG
 
 ### OpenAI 兼容端点
 
-客户端通过 Rig 的 OpenAI Chat Completions 兼容路径请求配置的 `base_url`。DeepSeek 示例：
+客户端通过 Rig 的 OpenAI Chat Completions 兼容路径请求配置的 `base_url`。如果端点通过 HTTP 400 明确拒绝 `system` 消息角色，客户端会将相同指令改用 `developer` 角色重试一次。两次请求共用配置的 `timeout_secs` 上限。DeepSeek 示例：
 
 ```toml
 [settings]

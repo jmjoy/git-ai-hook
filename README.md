@@ -85,7 +85,7 @@ GIT_AI_HOOK_DEBUG
 
 ### OpenAI-Compatible Endpoints
 
-The client uses Rig's OpenAI Chat Completions compatibility path with the configured base URL. For example:
+The client uses Rig's OpenAI Chat Completions compatibility path with the configured base URL. If the endpoint explicitly rejects the `system` message role with HTTP 400, it retries once using `developer` for the same instructions. Both attempts share the configured `timeout_secs` limit. For example:
 
 ```toml
 [settings]

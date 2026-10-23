@@ -43,21 +43,27 @@ impl MockServer {
         } else {
             r#"{"error":{"message":"mock failure"}}"#.to_string()
         };
+        Self::start_with_responses(vec![(status, body); request_count])
+    }
+
+    fn start_with_responses(responses: Vec<(u16, String)>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
         let address = listener.local_addr().expect("mock address");
         let handle = thread::spawn(move || {
             let mut requests = Vec::new();
-            for _ in 0..request_count {
+            for (status, body) in responses {
                 let (mut stream, _) = listener.accept().expect("accept request");
                 stream
                     .set_read_timeout(Some(Duration::from_secs(5)))
                     .expect("set timeout");
                 let request = read_http_request(&mut stream);
                 requests.push(request);
-                let reason = if status == 200 {
-                    "OK"
-                } else {
-                    "Internal Server Error"
+                let reason = match status {
+                    200 => "OK",
+                    400 => "Bad Request",
+                    401 => "Unauthorized",
+                    429 => "Too Many Requests",
+                    _ => "Internal Server Error",
                 };
                 write!(
                     stream,
@@ -430,6 +436,131 @@ fn generate_no_fallback_preserves_invalid_model_response_and_code_fences() {
     assert!(debug_stdout.contains("# --- git-ai-hook prompt begin ---"));
     assert!(debug_stdout.contains("# diff --git a/src/generate.rs b/src/generate.rs"));
     assert_eq!(mock.finish().len(), 3);
+
+    fs::remove_dir_all(root).expect("remove temporary repository");
+}
+
+#[test]
+fn commands_retry_rejected_system_messages_with_developer_role() {
+    let (root, repository) = initialize_repository("developer-role-retry");
+    stage_file(&repository, &root, "src/generate.rs", "pub fn added() {}\n");
+    let config_root = root.join("xdg-config");
+    let rejection_messages = [
+        "System messages are not allowed",
+        "Unsupported value: 'messages[0].role' does not support 'system' with this model.",
+    ];
+    let success = serde_json::json!({
+        "id": "mock",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "mock-model",
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": "feat: support developer messages"},
+            "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    })
+    .to_string();
+
+    for rejection in rejection_messages {
+        for arguments in [
+            vec!["generate"],
+            vec!["generate", "--no-fallback"],
+            vec!["config", "validate"],
+        ] {
+            let mock = MockServer::start_with_responses(vec![
+                (400, serde_json::json!({"error": {"message": rejection, "type": "invalid_request_error"}}).to_string()),
+                (200, success.clone()),
+            ]);
+            write_project_config(&root, &mock.base_url, false);
+            let mut command = Command::new(binary());
+            command.current_dir(&root).args(&arguments);
+            let output = child(&mut command, &config_root);
+            assert!(output.status.success(), "{arguments:?}: {output:?}");
+            let stdout = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+            if arguments[0] == "generate" {
+                assert_eq!(stdout, "feat: support developer messages\n");
+            } else {
+                assert!(stdout.contains("Configuration is valid"));
+            }
+
+            let requests = mock.finish();
+            assert_eq!(requests.len(), 2);
+            let bodies = requests
+                .iter()
+                .map(|request| {
+                    assert!(request.starts_with("POST /chat/completions HTTP/1.1"));
+                    let (_, body) = request.split_once("\r\n\r\n").expect("HTTP body");
+                    serde_json::from_str::<serde_json::Value>(body).expect("JSON body")
+                })
+                .collect::<Vec<_>>();
+            let first = &bodies[0];
+            let retry = &bodies[1];
+            assert_eq!(first["messages"][0]["role"], "system");
+            assert_eq!(retry["messages"].as_array().expect("messages").len(), 2);
+            assert_eq!(retry["messages"][0]["role"], "developer");
+            let original_instructions = first["messages"][0]["content"]
+                .as_array()
+                .expect("system content")
+                .iter()
+                .map(|part| part["text"].as_str().expect("text"))
+                .collect::<String>();
+            assert_eq!(retry["messages"][0]["content"], original_instructions);
+            assert_eq!(retry["messages"][1]["role"], "user");
+            assert_eq!(retry["messages"][1], first["messages"][1]);
+            assert_eq!(retry["model"], "mock-model");
+            assert_eq!(retry["reasoning_effort"], "medium");
+            assert_eq!(
+                retry["max_tokens"],
+                if arguments[0] == "generate" { 64 } else { 8 }
+            );
+        }
+    }
+
+    fs::remove_dir_all(root).expect("remove temporary repository");
+}
+
+#[test]
+fn developer_role_retry_stops_after_the_second_rejection() {
+    let (root, repository) = initialize_repository("developer-role-retry-limit");
+    stage_file(&repository, &root, "src/generate.rs", "pub fn added() {}\n");
+    let rejection =
+        serde_json::json!({"error": {"message": "System messages are not allowed"}}).to_string();
+    let mock = MockServer::start_with_responses(vec![(400, rejection); 2]);
+    write_project_config(&root, &mock.base_url, false);
+    let mut command = Command::new(binary());
+    command.current_dir(&root).arg("generate");
+    let output = child(&mut command, &root.join("xdg-config"));
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("System messages are not allowed"));
+    assert_eq!(mock.finish().len(), 2);
+
+    fs::remove_dir_all(root).expect("remove temporary repository");
+}
+
+#[test]
+fn unrelated_provider_errors_do_not_retry_with_developer_role() {
+    let (root, repository) = initialize_repository("developer-role-no-retry");
+    stage_file(&repository, &root, "src/generate.rs", "pub fn added() {}\n");
+    for (status, message) in [
+        (400, "Invalid max_tokens parameter"),
+        (401, "System messages are not allowed"),
+        (429, "System messages are not allowed"),
+        (500, "System messages are not allowed"),
+    ] {
+        let error = serde_json::json!({"error": {"message": message}}).to_string();
+        let mock = MockServer::start_with_responses(vec![(status, error)]);
+        write_project_config(&root, &mock.base_url, false);
+        let mut command = Command::new(binary());
+        command.current_dir(&root).arg("generate");
+        let output = child(&mut command, &root.join("xdg-config"));
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(&format!("status {status}")), "{stderr}");
+        assert!(stderr.contains(message), "{stderr}");
+        assert_eq!(mock.finish().len(), 1);
+    }
 
     fs::remove_dir_all(root).expect("remove temporary repository");
 }

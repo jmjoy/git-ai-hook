@@ -160,4 +160,10 @@ git ai-hook uninstall
 
 ## 许可证
 
-本项目采用 [木兰宽松许可证，第 2 版](LICENSE)（`MulanPSL-2.0`）。
+本项目提供以下三种许可证，可任选其一：
+
+- [木兰宽松许可证，第 2 版](LICENSE-MULAN)（`MulanPSL-2.0`）
+- [Apache 许可证，第 2.0 版](LICENSE-APACHE)（`Apache-2.0`）
+- [MIT 许可证](LICENSE-MIT)（`MIT`）
+
+SPDX 表达式：`MulanPSL-2.0 OR Apache-2.0 OR MIT`。
